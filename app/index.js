@@ -1,19 +1,19 @@
 'use strict';
 var path = require('path');
 var spawn = require('child_process').spawn;
-var which = require('which');
 var findupSync = require('findup-sync');
 var chardet = require('jschardet')
 var iconv = require('iconv-lite')
 var BufferHelper = require('bufferhelper')
+var getGulpPath = require('./get-gulp-path')
 //var currentPath = require('current-path');
-var currentPath = function(callback){
-	callback(null, process.cwd())
-}
 //var displayNotification = require('display-notification');
-var displayNotification = function(){
-
-}
+var notifier = require('node-notifier');
+var displayNotification = function(opt){
+	// not working on win10
+	notifier.notify(opt);
+};
+var BrowserWindow = require('browser-window');
 
 var getGulpTasks = require('get-gulp-tasks');
 var _ = require('lodash');
@@ -43,55 +43,32 @@ require('crash-reporter').start();
 // fix the $PATH on OS X
 fixPath();
 
-var charset
-function decode(buf, cb){
-	if (!charset) {
-		var det = chardet.detect(buf)
-		console.log('-------', det.encoding)
-		if (det.confidence > 0.9 && det.encoding !== 'ascii') {
-			charset = det.encoding
-			return decode(buf, cb)
-		}
-		return cb(null, buf.toString())
-	}
-	if (charset === 'ascii') {
-		return cb(null, buf.toString())
-	}
-	// windows-1252 => win1252 for iconv-lite
-	// https://github.com/ashtuchkin/iconv-lite/wiki/Supported-Encodings
-	var cs = charset.replace(/^windows\-/, 'win')
-	console.log('====', cs)
-	cb(null, iconv.decode(buf, cs))
-}
-
 function runTask(taskName) {
 	//var gulpPath = path.join(__dirname, 'node_modules', 'gulp', 'bin', 'gulp.js');
-	var gulpPath = which.sync('gulp');
+	var gulpPath = getGulpPath()
 	var cp = spawn(gulpPath, [taskName, '--no-color']);
 
-	//cp.stdout.setEncoding('utf8');
-	var bh = new BufferHelper()
+	var outBH = new BufferHelper();
 	cp.stdout.on('data', function (buf) {
-		bh.concat(buf)
+		outBH.concat(buf);
 	});
 	cp.stdout.on('end', function () {
-		decode(bh.toBuffer(), function(err, data){
-			//data = data.replace(/脦录s/g, 'μs') // hack修正字符
-			console.log(data);
-		})
-		bh = new BufferHelper()
+		var str = outBH.toBuffer().toString();
+		console.log(str);
 	});
 
 	// TODO: show progress in menubar menu
 	//tray.menu = createTrayMenu(name, [], 'progress here');
 
-	//cp.stderr.setEncoding('utf8');
-	/*cp.stderr.on('data', function (data) {
-		decode(data, function(err, data){
-			console.error(data);
-			displayNotification({text: '[error] ' + data});
-		})
-	});*/
+	var errBH = new BufferHelper();
+	cp.stderr.on('data', function (buf) {
+		errBH.concat(buf);
+	});
+	cp.stderr.on('end', function () {
+		var str = errBH.toBuffer().toString();
+		console.error(str);
+		displayNotification({text: '[error] ' + str});
+	});
 
 	cp.on('exit', function (code) {
 		if (code === 0) {
@@ -152,7 +129,7 @@ function createProjectMenu() {
 			dialog.showOpenDialog(null, {
 				title: 'Pick a project',
 				properties: ['openDirectory'],
-				defaultPath: path.resolve(process.cwd(), '..')
+				defaultPath: path.resolve(process.cwd(), '../..')
 			}, function (dirs) {
 				setActiveProject(dirs[0]);
 				addRecentProject(currentProject);
@@ -245,14 +222,14 @@ function setActiveProject(dirPath) {
 		}
 	});
 }
-
+/*
 function updateTray() {
 	currentPath(function (err, dirPath) {
 		setTimeout(updateTray, TRAY_UPDATE_INTERVAL);
 		setActiveProject(dirPath);
 	});
 }
-
+*/
 app.on('ready', function () {
 	tray = new Tray(path.join(__dirname, '/menubar-icon.png'));
 	tray.setPressedImage(path.join(__dirname, 'menubar-icon-alt.png'));
