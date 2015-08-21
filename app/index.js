@@ -1,9 +1,20 @@
 'use strict';
 var path = require('path');
 var spawn = require('child_process').spawn;
+var which = require('which');
 var findupSync = require('findup-sync');
-var currentPath = require('current-path');
-var displayNotification = require('display-notification');
+var chardet = require('jschardet')
+var iconv = require('iconv-lite')
+var BufferHelper = require('bufferhelper')
+//var currentPath = require('current-path');
+var currentPath = function(callback){
+	callback(null, process.cwd())
+}
+//var displayNotification = require('display-notification');
+var displayNotification = function(){
+
+}
+
 var getGulpTasks = require('get-gulp-tasks');
 var _ = require('lodash');
 var fixPath = require('fix-path');
@@ -27,28 +38,60 @@ var currentProject = {
 
 require('crash-reporter').start();
 
-app.dock.hide();
+//app.dock.hide();
 
 // fix the $PATH on OS X
 fixPath();
 
+var charset
+function decode(buf, cb){
+	if (!charset) {
+		var det = chardet.detect(buf)
+		console.log('-------', det.encoding)
+		if (det.confidence > 0.9 && det.encoding !== 'ascii') {
+			charset = det.encoding
+			return decode(buf, cb)
+		}
+		return cb(null, buf.toString())
+	}
+	if (charset === 'ascii') {
+		return cb(null, buf.toString())
+	}
+	// windows-1252 => win1252 for iconv-lite
+	// https://github.com/ashtuchkin/iconv-lite/wiki/Supported-Encodings
+	var cs = charset.replace(/^windows\-/, 'win')
+	console.log('====', cs)
+	cb(null, iconv.decode(buf, cs))
+}
+
 function runTask(taskName) {
-	var gulpPath = path.join(__dirname, 'node_modules', 'gulp', 'bin', 'gulp.js');
+	//var gulpPath = path.join(__dirname, 'node_modules', 'gulp', 'bin', 'gulp.js');
+	var gulpPath = which.sync('gulp');
 	var cp = spawn(gulpPath, [taskName, '--no-color']);
 
-	cp.stdout.setEncoding('utf8');
-	cp.stdout.on('data', function (data) {
-		console.log(data);
+	//cp.stdout.setEncoding('utf8');
+	var bh = new BufferHelper()
+	cp.stdout.on('data', function (buf) {
+		bh.concat(buf)
+	});
+	cp.stdout.on('end', function () {
+		decode(bh.toBuffer(), function(err, data){
+			//data = data.replace(/脦录s/g, 'μs') // hack修正字符
+			console.log(data);
+		})
+		bh = new BufferHelper()
 	});
 
 	// TODO: show progress in menubar menu
 	//tray.menu = createTrayMenu(name, [], 'progress here');
 
-	cp.stderr.setEncoding('utf8');
-	cp.stderr.on('data', function (data) {
-		console.error(data);
-		displayNotification({text: '[error] ' + data});
-	});
+	//cp.stderr.setEncoding('utf8');
+	/*cp.stderr.on('data', function (data) {
+		decode(data, function(err, data){
+			console.error(data);
+			displayNotification({text: '[error] ' + data});
+		})
+	});*/
 
 	cp.on('exit', function (code) {
 		if (code === 0) {
@@ -82,7 +125,7 @@ function addRecentProject(project) {
 
 function createProjectMenu() {
 	var menu = new Menu();
-
+/*
 	if (process.platform === 'darwin' || process.platform === 'win32') {
 		menu.append(new MenuItem({
 			label: 'Follow Finder'
@@ -90,7 +133,7 @@ function createProjectMenu() {
 
 		menu.append(new MenuItem({type: 'separator'}));
 	}
-
+*/
 	if (recentProjects.length > 0) {
 		recentProjects.forEach(function (el) {
 			menu.append(new MenuItem({
@@ -215,7 +258,7 @@ app.on('ready', function () {
 	tray.setPressedImage(path.join(__dirname, 'menubar-icon-alt.png'));
 
 	createTrayMenu();
-	updateTray();
+	//updateTray();
 
 	if (DEBUG) {
 		//gui.Window.get().showDevTools();
