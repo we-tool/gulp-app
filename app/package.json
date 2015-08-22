@@ -16,11 +16,6 @@
   "engines": {
     "node": ">=0.10.0"
   },
-  "scripts": {
-    "start": "electron .",
-    "build": "electron-packager . $npm_package_productName --version=0.31.0 --ignore=node_modules/electron-prebuilt --ignore=node_modules/electron-packager",
-    "build_": "electron-packager . $npm_package_productName --prune --asar --ignore=node_modules/electron-prebuilt --ignore=node_modules/electron-packager"
-  },
   "keywords": [
     "electron-app",
     "gulp",
@@ -38,12 +33,8 @@
     "bufferhelper": "^0.2.0",
     "findup-sync": "^0.2.1",
     "fix-path": "^1.0.0",
-    "gulp": "^3.9.0",
     "lodash": "^3.8.0",
+    "node-notifier": "^4.2.3",
     "resolve-from": "^1.0.0"
-  },
-  "devDependencies": {
-    "electron-prebuilt": "0.31.0",
-    "electron-packager": "^5.0.2"
   }
 }
