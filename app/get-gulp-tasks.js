@@ -3,25 +3,23 @@ var childProcess = require('child_process');
 var getGulpPath = require('./get-gulp-path');
 
 module.exports = function (pth, cb) {
-  if (typeof pth !== 'string') {
-    cb = pth;
-    pth = process.cwd();
+  var gulpPath = getGulpPath(pth);
+  if (!gulpPath) {
+    setImmediate(cb, new Error('No local gulp found'));
+    return;
   }
 
-  try {
-    var gulpBinPath = getGulpPath();
-  } catch(err) {
-    setImmediate(cb, err)
-  }
-
-  childProcess.execFile(gulpBinPath, ['--tasks-simple'], {cwd: pth}, function (err, stdout) {
+  childProcess.execFile(gulpPath, ['--tasks-simple'], {
+    cwd: pth
+  }, function (err, stdout) {
     if (err) {
-      cb(err);
+      cb(new Error('Invalid gulpfile'));
       return;
     }
 
     var ret = stdout.trim();
 
-    cb(null, ret ? ret.split('\n') : []);
+    // returns gulpPath also
+    cb(null, ret ? ret.split('\n') : [], gulpPath);
   });
 };

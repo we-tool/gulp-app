@@ -2,20 +2,35 @@
 var path = require('path');
 var spawn = require('child_process').spawn;
 var findupSync = require('findup-sync');
-var chardet = require('jschardet')
-var iconv = require('iconv-lite')
+//var chardet = require('jschardet')
+//var iconv = require('iconv-lite')
 var BufferHelper = require('bufferhelper')
-var getGulpPath = require('./get-gulp-path')
 //var currentPath = require('current-path');
 //var displayNotification = require('display-notification');
 var notifier = require('node-notifier');
-var displayNotification = function(opt){
-	// not working on win10
-	notifier.notify(opt);
-};
-var BrowserWindow = require('browser-window');
 
-var getGulpTasks = require('get-gulp-tasks');
+var displayNotification = function(opt){
+	// use  displayBalloon on windows instead
+	if (process.platform === 'win32') {
+		tray.displayBalloon({
+			icon: opt.icon,
+			title: opt.title || 'Gulp',
+			content: opt.text || opt.subtitle
+		});
+		return;
+	}
+
+	// not working on win10
+	notifier.notify({
+		icon: opt.icon,
+		title: opt.title || 'Gulp',
+		subtitle: opt.subtitle,
+		message: opt.text,
+		sound: opt.sound
+	});
+};
+
+var getGulpTasks = require('./get-gulp-tasks');
 var _ = require('lodash');
 var fixPath = require('fix-path');
 
@@ -26,35 +41,33 @@ var Menu = require('menu');
 var MenuItem = require('menu-item');
 
 var DEBUG = true;
-var TRAY_UPDATE_INTERVAL = 1000;
+//var TRAY_UPDATE_INTERVAL = 1000;
 
 var tray;
 var prevPath;
 var recentProjects = [];
+/*
 var currentProject = {
 	name: 'No gulpfile found',
 	tasks: []
 };
+*/
 
-require('crash-reporter').start();
+//require('crash-reporter').start();
 
 //app.dock.hide();
 
 // fix the $PATH on OS X
 fixPath();
 
-function runTask(taskName) {
-	//var gulpPath = path.join(__dirname, 'node_modules', 'gulp', 'bin', 'gulp.js');
-	var gulpPath = getGulpPath()
-	var cp = spawn(gulpPath, [taskName, '--no-color']);
+function runTask(project, taskName) {
+	var cp = spawn(project.gulp, [taskName, '--no-color'], {
+		cwd: project.path
+	});
 
 	var outBH = new BufferHelper();
 	cp.stdout.on('data', function (buf) {
 		outBH.concat(buf);
-	});
-	cp.stdout.on('end', function () {
-		var str = outBH.toBuffer().toString();
-		console.log(str);
 	});
 
 	// TODO: show progress in menubar menu
@@ -64,64 +77,144 @@ function runTask(taskName) {
 	cp.stderr.on('data', function (buf) {
 		errBH.concat(buf);
 	});
-	cp.stderr.on('end', function () {
-		var str = errBH.toBuffer().toString();
-		console.error(str);
-		displayNotification({text: '[error] ' + str});
-	});
 
 	cp.on('exit', function (code) {
+		var outStr = outBH.toBuffer().toString();
+		if (outStr) {
+			console.log(outStr);
+		}
+
+		var errStr = errBH.toBuffer().toString();
+		if (errStr) {
+			console.error(errStr);
+		}
+
 		if (code === 0) {
 			displayNotification({
-				title: 'gulp',
-				subtitle: 'Finished running tasks'
+				title: project.name + ' ['+ taskName +']',
+				subtitle: 'Finished running task'
 			});
 		} else {
 			console.error('Exited with error code ' + code);
-
 			displayNotification({
-				title: 'gulp',
-				subtitle: 'Exited with error code ' + code,
+				title: project.name + ' ['+ taskName +']',
+				text: '[error] ' + errStr,
 				sound: 'Basso'
 			});
 		}
 	});
 }
 
-function addRecentProject(project) {
-	recentProjects = recentProjects.filter(function (el) {
-		return el.name !== project.name;
-	});
+function addRecentProject(dirPath) {
+	var project = {};
+	project.path = dirPath;
 
-	if (recentProjects.length === 10) {
-		recentProjects.pop();
+	try {
+		var pkgPath = findupSync('package.json', {
+			cwd: dirPath
+		});
+		var pkg = require(pkgPath);
+		project.name = pkg.name;
+	} catch(err) {
+		project.name = path.basename(dirPath, path.extname(dirPath));
 	}
 
-	recentProjects.unshift(project);
+	getProjectTasks(project, function (err, tasks, gulpPath) {
+		// always no error
+		project.menu = createProjectMenu(project);
+
+		recentProjects = recentProjects.filter(function (el) {
+			return el.path !== project.path;
+		});
+		if (recentProjects.length === 10) {
+			recentProjects.pop();
+		}
+		recentProjects.unshift(project);
+
+		console.log(prevPath, dirPath);
+
+		// TODO: this prevent updating of tasklist from changes in the gulpfile
+		//if (prevPath !== dirPath) {
+			prevPath = dirPath;
+			createTrayMenu();
+		//}
+
+		displayNotification({
+			title: project.name,
+			subtitle: 'Project is ready'
+		})
+	});
 }
 
-function createProjectMenu() {
-	var menu = new Menu();
-/*
-	if (process.platform === 'darwin' || process.platform === 'win32') {
-		menu.append(new MenuItem({
-			label: 'Follow Finder'
-		}));
+function getProjectTasks(project, callback) {
+	getGulpTasks(project.path, function (err, tasks, gulpPath) {
+		if (err) {
+			//if (err.code !== 'MODULE_NOT_FOUND') {
+			//	console.error(err);
+			//}
+			//callback(err);
 
-		menu.append(new MenuItem({type: 'separator'}));
-	}
-*/
-	if (recentProjects.length > 0) {
-		recentProjects.forEach(function (el) {
+			// ignore err, return empty tasks
+			displayNotification({
+				title: project.name,
+				text: '[error] ' + err.message
+			});
+			callback(null);
+			return;
+		}
+
+		tasks = _.pull(tasks, 'default');
+		tasks.unshift('default');
+
+		project.tasks = tasks;
+		project.gulp = gulpPath;
+		callback(null);
+	});
+}
+
+function createProjectMenu(project) {
+	var menu = new Menu();
+
+	menu.append(new MenuItem({
+		label: 'Remove',
+		click: function () {
+			var index = recentProjects.indexOf(project);
+			recentProjects.splice(index, 1);
+			createTrayMenu();
+		}
+	}));
+	menu.append(new MenuItem({
+		label: 'Refresh',
+		click: function () {
+			var index = recentProjects.indexOf(project);
+			recentProjects.splice(index, 1);
+			addRecentProject(project.path);
+		}
+	}));
+
+	menu.append(new MenuItem({type: 'separator'}));
+
+	if (project.tasks && project.tasks.length > 0) {
+		project.tasks.forEach(function (task) {
 			menu.append(new MenuItem({
-				label: el.name,
-				type: 'radio',
-				checked: el.name === currentProject.name
+				label: task,
+				click: function () {
+					runTask(project, task);
+				}
 			}));
 		});
-
-		menu.append(new MenuItem({type: 'separator'}));
+	} else {
+		menu.append(new MenuItem({
+			label: 'No task yet',
+			enabled: false
+		}));
 	}
+
+	return menu;
+}
+
+function createTrayMenu() {
+	var menu = new Menu();
 
 	menu.append(new MenuItem({
 		label: 'Open Project',
@@ -131,46 +224,17 @@ function createProjectMenu() {
 				properties: ['openDirectory'],
 				defaultPath: path.resolve(process.cwd(), '../..')
 			}, function (dirs) {
-				setActiveProject(dirs[0]);
-				addRecentProject(currentProject);
-				createTrayMenu();
+				addRecentProject(dirs[0]);
 			});
 		}
 	}));
 
-	menu.append(new MenuItem({type: 'separator'}));
-
-	menu.append(new MenuItem({
-		label: 'Clear',
-		click: function () {
-			recentProjects.length = 0;
-			createTrayMenu();
-		}
-	}));
-
-	return menu;
-}
-
-function createTrayMenu() {
-	var menu = new Menu();
-
-	menu.append(new MenuItem({
-		label: currentProject.name,
-		submenu: createProjectMenu()
-	}));
-
-	if (currentProject.tasks && currentProject.tasks.length > 0) {
-		menu.append(new MenuItem({type: 'separator'}));
-
-		currentProject.tasks.forEach(function (el) {
-			menu.append(new MenuItem({
-				label: el,
-				click: function () {
-					runTask(el);
-				}
-			}));
-		});
-	}
+	recentProjects.forEach(function (project) {
+		menu.append(new MenuItem({
+			label: project.name,
+			submenu: project.menu
+		}));
+	});
 
 	menu.append(new MenuItem({type: 'separator'}));
 	menu.append(new MenuItem({
@@ -179,57 +243,8 @@ function createTrayMenu() {
 	}));
 
 	tray.setContextMenu(menu);
-
-	return menu;
 }
 
-function setActiveProject(dirPath) {
-	currentProject = {};
-	process.chdir(dirPath);
-
-	var pkgPath = findupSync('package.json');
-
-	if (!pkgPath) {
-		console.log('Couldn\'t find package.json');
-		return;
-	}
-
-	var pkg = require(pkgPath);
-
-	currentProject.path = dirPath;
-	currentProject.name = pkg.name || path.basename(dirPath, path.extname(dirPath));
-
-	getGulpTasks(function (err, tasks) {
-		if (err) {
-			if (err.code !== 'MODULE_NOT_FOUND') {
-				console.error(err);
-			}
-
-			return;
-		}
-
-		tasks = _.pull(tasks, 'default');
-		tasks.unshift('default');
-
-		currentProject.tasks = tasks;
-
-		console.log(prevPath, dirPath);
-
-		// TODO: this prevent updating of tasklist from changes in the gulpfile
-		if (prevPath !== dirPath) {
-			prevPath = dirPath;
-			createTrayMenu();
-		}
-	});
-}
-/*
-function updateTray() {
-	currentPath(function (err, dirPath) {
-		setTimeout(updateTray, TRAY_UPDATE_INTERVAL);
-		setActiveProject(dirPath);
-	});
-}
-*/
 app.on('ready', function () {
 	tray = new Tray(path.join(__dirname, '/menubar-icon.png'));
 	tray.setPressedImage(path.join(__dirname, 'menubar-icon-alt.png'));

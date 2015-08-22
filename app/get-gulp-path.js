@@ -3,17 +3,19 @@ var path = require('path');
 
 
 module.exports = function(pth) {
-  if (typeof pth !== 'string') {
-    cb = pth;
+  if (!pth) {
     pth = process.cwd();
   }
+  var gulpPath = null;
 
-  gulpBinPath = resolveFrom(pth, 'gulp/bin/gulp');
+  try {
+    gulpPath = resolveFrom(pth, 'gulp/bin/gulp');
+  } catch(err) {}
 
   // use .cmd for windows
-  if (process.platform === 'win32') {
-    gulpBinPath = path.resolve(gulpBinPath, '../../../.bin/gulp.cmd');
+  if (gulpPath && process.platform === 'win32') {
+    gulpPath = path.resolve(gulpPath, '../../../.bin/gulp.cmd');
   }
 
-  return gulpBinPath;
+  return gulpPath;
 }
