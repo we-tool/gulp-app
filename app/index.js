@@ -6,11 +6,10 @@ var findupSync = require('findup-sync');
 //var iconv = require('iconv-lite')
 var BufferHelper = require('bufferhelper')
 //var currentPath = require('current-path');
-//var displayNotification = require('display-notification');
 var notifier = require('node-notifier');
 
 var displayNotification = function(opt){
-	// use  displayBalloon on windows instead
+	// use	displayBalloon on windows instead
 	if (process.platform === 'win32') {
 		tray.displayBalloon({
 			icon: opt.icon,
@@ -20,7 +19,14 @@ var displayNotification = function(opt){
 		return;
 	}
 
+	if (process.platform === 'darwin') {
+		var fn = require('display-notification'); // osx only
+		fn(opt);
+		return;
+	}
+
 	// not working on win10
+	// for linux, test needed
 	notifier.notify({
 		icon: opt.icon,
 		title: opt.title || 'Gulp',
@@ -55,7 +61,7 @@ var currentProject = {
 
 //require('crash-reporter').start();
 
-//app.dock.hide();
+app.dock.hide();
 
 // fix the $PATH on OS X
 fixPath();
